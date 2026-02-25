@@ -13,7 +13,7 @@ pub const LOG_BLOCK_WINDOW: u64 = 100_000;
 pub const MAX_TX_TO_CHECK: usize = 300;
 
 // Poll interval in seconds.
-pub const POLL_INTERVAL_SECS: u64 = 1800; // 30 minutes
+pub const POLL_INTERVAL_SECS: u64 = 900; // 15 minutes
 
 // HTTP bind address for /metrics and /healthz.
 pub const METRICS_BIND_ADDR: &str = "0.0.0.0:9104";
