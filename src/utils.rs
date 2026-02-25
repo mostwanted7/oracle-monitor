@@ -25,12 +25,29 @@ pub struct Config {
     pub network: String,
     pub rpc_url: String,
     pub target_contract_address: String,
+    pub members_source_address: String,
+}
+
+fn validate_eth_address(addr: &str) -> Result<()> {
+    if addr.len() != 42 || !addr.starts_with("0x") {
+        return Err(anyhow!("invalid ethereum address format: {addr}"));
+    }
+
+    let hex_part = &addr[2..];
+    if !hex_part.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(anyhow!("invalid ethereum address hex: {addr}"));
+    }
+
+    Ok(())
 }
 
 // Parse CLI args and build config.
 // Usage:
 //   cargo run -- mainnet http://127.0.0.1:8545
 //   cargo run -- hoodi   http://127.0.0.1:8545
+//
+// Optional env override:
+//   ORACLE_MEMBERS_SOURCE_ADDRESS=0x...   (contract that has getMembers())
 pub fn load_config() -> Result<Config> {
     let args: Vec<String> = env::args().collect();
 
@@ -53,10 +70,27 @@ pub fn load_config() -> Result<Config> {
         }
     };
 
+    // Default contracts that expose getMembers() for each network.
+    let default_members_source_address = match network {
+        "mainnet" => "0x7FaDB6358950c5fAA66Cb5EB8eE5147De3df355a".to_string(),
+        "hoodi" => "0x30308CD8844fb2DB3ec4D056F1d475a802DCA07c".to_string(),
+        _ => unreachable!(),
+    };
+
+    let members_source_address = env::var("ORACLE_MEMBERS_SOURCE_ADDRESS")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or(default_members_source_address)
+        .to_ascii_lowercase();
+
+    validate_eth_address(&target_contract_address.to_ascii_lowercase())?;
+    validate_eth_address(&members_source_address)?;
+
     Ok(Config {
         network: network.to_string(),
         rpc_url,
         target_contract_address,
+        members_source_address,
     })
 }
 

@@ -8,6 +8,9 @@ use tokio::sync::RwLock;
 
 use crate::utils::{hex_to_u64, unix_now_secs, Config, LOG_BLOCK_WINDOW, MAX_TX_TO_CHECK, POLL_INTERVAL_SECS};
 
+// Selector for HashConsensus.getMembers()
+const GET_MEMBERS_SELECTOR: &str = "0x9eab5253";
+
 // Metrics for one oracle address.
 #[derive(Debug, Clone, Default)]
 pub struct OracleMetrics {
@@ -63,48 +66,6 @@ async fn rpc_call(
         .ok_or_else(|| anyhow!("rpc response missing result"))
 }
 
-// Encode plain text into hex-bytes string expected by web3_sha3.
-// Example: "abc" -> "0x616263"
-fn text_to_hex_bytes(s: &str) -> String {
-    let mut out = String::from("0x");
-    for b in s.as_bytes() {
-        out.push_str(&format!("{b:02x}"));
-    }
-    out
-}
-
-// Ask node for method selector by hashing function signature.
-// Example: "getMembers()" -> "0x..." (first 4 bytes / 8 hex chars + 0x)
-async fn method_selector(client: &reqwest::Client, rpc_url: &str, signature: &str) -> Result<String> {
-    let input_hex = text_to_hex_bytes(signature);
-    let hash = rpc_call(client, rpc_url, "web3_sha3", json!([input_hex]))
-        .await?
-        .as_str()
-        .context("web3_sha3 result was not a string")?
-        .to_string();
-
-    if hash.len() < 10 {
-        return Err(anyhow!("web3_sha3 returned short hash for {signature}"));
-    }
-
-    Ok(hash[..10].to_string())
-}
-
-// Parse address from standard eth_call address return word (32-byte padded).
-fn decode_address_word(result_hex: &str) -> Result<String> {
-    let hex = result_hex
-        .strip_prefix("0x")
-        .ok_or_else(|| anyhow!("eth_call result missing 0x prefix"))?;
-
-    if hex.len() < 64 {
-        return Err(anyhow!("eth_call address result too short"));
-    }
-
-    // Address is the last 20 bytes (40 hex chars) of the first 32-byte word.
-    let addr = format!("0x{}", &hex[24..64]).to_ascii_lowercase();
-    Ok(addr)
-}
-
 fn read_abi_word_as_u64(hex_no_prefix: &str, byte_offset: usize) -> Result<u64> {
     let start = byte_offset * 2;
     let end = start + 64;
@@ -154,44 +115,25 @@ fn decode_get_members_addresses(result_hex: &str) -> Result<Vec<String>> {
     Ok(out)
 }
 
-// Query on-chain oracle member list:
-// AccountingOracle.getConsensusContract() -> HashConsensus.getMembers()
+// Query on-chain oracle member list via getMembers().
+// `members_source_address` must point to a HashConsensus-like contract.
 async fn fetch_oracle_allowlist(client: &reqwest::Client, config: &Config) -> Result<Vec<String>> {
-    let get_consensus_selector = method_selector(client, &config.rpc_url, "getConsensusContract()")
-        .await
-        .context("failed to compute selector for getConsensusContract()")?;
-
-    let consensus_raw = rpc_call(
-        client,
-        &config.rpc_url,
-        "eth_call",
-        json!([{
-            "to": config.target_contract_address,
-            "data": get_consensus_selector,
-        }, "latest"]),
-    )
-    .await?
-    .as_str()
-    .context("getConsensusContract eth_call result was not a string")?
-    .to_string();
-
-    let hash_consensus_address = decode_address_word(&consensus_raw)
-        .context("failed to decode consensus contract address")?;
-
-    let get_members_selector = method_selector(client, &config.rpc_url, "getMembers()")
-        .await
-        .context("failed to compute selector for getMembers()")?;
-
     let members_raw = rpc_call(
         client,
         &config.rpc_url,
         "eth_call",
         json!([{
-            "to": hash_consensus_address,
-            "data": get_members_selector,
+            "to": config.members_source_address,
+            "data": GET_MEMBERS_SELECTOR,
         }, "latest"]),
     )
-    .await?
+    .await
+    .with_context(|| {
+        format!(
+            "getMembers eth_call failed on members source {}",
+            config.members_source_address
+        )
+    })?
     .as_str()
     .context("getMembers eth_call result was not a string")?
     .to_string();

@@ -19,6 +19,8 @@ async fn main() -> Result<()> {
     println!("Selected network: {}", config.network);
     println!("RPC URL: {}", config.rpc_url);
     println!("Target contract: {}", config.target_contract_address);
+    println!("Members source contract: {}", config.members_source_address);
+    println!("Oracle allowlist: fetched on-chain via getMembers()");
     println!("Poll interval seconds: {POLL_INTERVAL_SECS}");
     println!("Metrics endpoint: http://{METRICS_BIND_ADDR}/metrics");
     println!("Health endpoint:  http://{METRICS_BIND_ADDR}/healthz");
